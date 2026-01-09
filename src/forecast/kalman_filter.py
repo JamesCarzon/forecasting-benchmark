@@ -97,28 +97,45 @@ def create_kalman_forecaster(
     A = np.eye(state_dim)
     
     # If we have enough data, estimate transition dynamics
-    if n_samples > observation_lag:
+    if n_samples > observation_lag + 1:
         # Create lagged features for learning
         X = []
         Y = []
-        for i in range(observation_lag, n_samples):
+        for i in range(observation_lag, n_samples - 1):
             # Stack previous observations as state
             state_features = []
             for lag in range(observation_lag):
-                state_features.append(data[i - lag - 1])
+                state_features.append(data[i - lag])
             X.append(np.concatenate(state_features))
-            Y.append(data[i])
+            
+            # Next state
+            next_state_features = []
+            for lag in range(observation_lag):
+                if i - lag + 1 < n_samples:
+                    next_state_features.append(data[i - lag + 1])
+                else:
+                    next_state_features.append(data[i - lag])
+            Y.append(np.concatenate(next_state_features))
         
         if len(X) > 0:
             X = np.array(X)
             Y = np.array(Y)
             
-            # Use simple autoregressive approach to estimate dynamics
             # Pad or truncate to match state_dim
             if X.shape[1] < state_dim:
                 X = np.pad(X, ((0, 0), (0, state_dim - X.shape[1])), mode='constant')
+                Y = np.pad(Y, ((0, 0), (0, state_dim - Y.shape[1])), mode='constant')
             else:
                 X = X[:, :state_dim]
+                Y = Y[:, :state_dim]
+            
+            # Learn state transition matrix A using least squares
+            # A = argmin ||Y - X @ A.T||^2
+            try:
+                A = np.linalg.lstsq(X, Y, rcond=None)[0].T
+            except np.linalg.LinAlgError:
+                # If learning fails, keep identity matrix
+                A = np.eye(state_dim)
     
     # Observation matrix C (extracts the predicted observation from state)
     C = np.zeros((obs_dim, state_dim))
@@ -211,8 +228,8 @@ def create_kalman_forecaster(
             # Innovation covariance
             S = C @ P @ C.T + R
             
-            # Kalman gain
-            K = P @ C.T @ np.linalg.pinv(S)
+            # Kalman gain (using solve for numerical stability)
+            K = np.linalg.solve(S.T, (P @ C.T).T).T
             
             # Update state estimate
             x = x + K @ innovation
