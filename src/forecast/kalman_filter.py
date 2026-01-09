@@ -108,13 +108,10 @@ def create_kalman_forecaster(
                 state_features.append(data[i - lag])
             X.append(np.concatenate(state_features))
             
-            # Next state
+            # Next state (shifted by one time step)
             next_state_features = []
             for lag in range(observation_lag):
-                if i - lag + 1 < n_samples:
-                    next_state_features.append(data[i - lag + 1])
-                else:
-                    next_state_features.append(data[i - lag])
+                next_state_features.append(data[i - lag + 1])
             Y.append(np.concatenate(next_state_features))
         
         if len(X) > 0:
@@ -130,9 +127,14 @@ def create_kalman_forecaster(
                 Y = Y[:, :state_dim]
             
             # Learn state transition matrix A using least squares
-            # A = argmin ||Y - X @ A.T||^2
+            # Solve Y = X @ A for A, where x_{t+1} = A @ x_t
+            # This gives A.T such that Y = X @ A.T, so A = (lstsq result).T
+            # But we want x_{t+1} = A @ x_t, which in batch form is Y.T = A @ X.T
+            # So A = Y.T @ X.T^+ = (X @ Y.T^+).T
+            # Simpler: solve X @ A.T = Y, then A = (solution).T
             try:
-                A = np.linalg.lstsq(X, Y, rcond=None)[0].T
+                A_T = np.linalg.lstsq(X, Y, rcond=None)[0]
+                A = A_T.T
             except np.linalg.LinAlgError:
                 # If learning fails, keep identity matrix
                 A = np.eye(state_dim)
@@ -228,14 +230,15 @@ def create_kalman_forecaster(
             # Innovation covariance
             S = C @ P @ C.T + R
             
-            # Kalman gain (using solve for numerical stability)
-            K = np.linalg.solve(S.T, (P @ C.T).T).T
+            # Kalman gain
+            K = P @ C.T @ np.linalg.inv(S)
             
             # Update state estimate
             x = x + K @ innovation
             
-            # Update state covariance
-            P = (np.eye(kalman_state['state_dim']) - K @ C) @ P
+            # Update state covariance (Joseph form for numerical stability)
+            I_KC = np.eye(kalman_state['state_dim']) - K @ C
+            P = I_KC @ P @ I_KC.T + K @ R @ K.T
             
             # Store updated state
             kalman_state['x'] = x
