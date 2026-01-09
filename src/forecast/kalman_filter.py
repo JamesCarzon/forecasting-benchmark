@@ -119,12 +119,15 @@ def create_kalman_forecaster(
             Y = np.array(Y)
             
             # Pad or truncate to match state_dim
-            if X.shape[1] < state_dim:
-                X = np.pad(X, ((0, 0), (0, state_dim - X.shape[1])), mode='constant')
-                Y = np.pad(Y, ((0, 0), (0, state_dim - Y.shape[1])), mode='constant')
-            else:
-                X = X[:, :state_dim]
-                Y = Y[:, :state_dim]
+            if X.shape[1] != state_dim:
+                if X.shape[1] < state_dim:
+                    # Pad with zeros if state dimension is larger
+                    X = np.pad(X, ((0, 0), (0, state_dim - X.shape[1])), mode='constant')
+                    Y = np.pad(Y, ((0, 0), (0, state_dim - Y.shape[1])), mode='constant')
+                else:
+                    # Truncate if state dimension is smaller
+                    X = X[:, :state_dim]
+                    Y = Y[:, :state_dim]
             
             # Learn state transition matrix A using least squares
             # Solve Y = X @ A for A, where x_{t+1} = A @ x_t
@@ -220,7 +223,17 @@ def create_kalman_forecaster(
         # Update state based on observations (Kalman filter update step)
         # Use most recent observation for update
         if len(obs_array) > 0:
-            y_current = obs_array[0].flatten()[:kalman_state['obs_dim']]
+            y_current = obs_array[0].flatten()
+            
+            # Validate observation dimensions
+            if len(y_current) < kalman_state['obs_dim']:
+                raise ValueError(
+                    f"Observation dimension {len(y_current)} is less than expected "
+                    f"dimension {kalman_state['obs_dim']}"
+                )
+            
+            # Use only the expected dimensions
+            y_current = y_current[:kalman_state['obs_dim']]
             
             # Kalman update
             # Innovation
@@ -230,8 +243,9 @@ def create_kalman_forecaster(
             # Innovation covariance
             S = C @ P @ C.T + R
             
-            # Kalman gain
-            K = P @ C.T @ np.linalg.inv(S)
+            # Kalman gain (using solve for numerical stability)
+            # K = P @ C.T @ inv(S), solve: S.T @ K.T = C @ P.T = C @ P
+            K = np.linalg.solve(S, C @ P).T
             
             # Update state estimate
             x = x + K @ innovation
