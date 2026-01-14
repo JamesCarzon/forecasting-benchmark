@@ -259,11 +259,11 @@ def evaluate_forecasts(
         ax_right = plt.subplot2grid((1, 2), (0, 1))
 
         ax_left.plot(times_rolling, rolling_cov, color='C4')
-        ax_left.axhline(1.0 - alpha, color='k', linestyle=':', label=f'Nominal rate = {100*(1-alpha):.0f}\%')
+        ax_left.axhline(1.0 - alpha, color='k', linestyle=':', label=f'Nominal rate = {100*(1-alpha):.0f}%')
         ax_left.set_ylim(-0.05, 1.05)
         ax_left.set_xlim(left=times_rolling[0], right=times_rolling[-1])
         ax_left.set_xlabel('Time (t)')
-        ax_left.set_ylabel('Coverage (\%)')
+        ax_left.set_ylabel('Coverage (%)')
         ax_left.set_title('Coverage rate', fontsize=10)
         ax_left.grid(True)
         ax_left.legend()
